@@ -1,34 +1,29 @@
-import { useState, useEffect, useCallback } from "react";
-import {
-  Scissors,
-  Plus,
-  Minus,
-  Trash2,
-  Banknote,
-  CreditCard,
-  Check,
-  Receipt,
-  BarChart3,
-  Settings,
-  Clock,
-  X,
-  Package,
-  Users,
-  Tag,
-  Wallet,
-  Printer,
-  AlertTriangle,
-  ListPlus,
-} from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from "recharts";
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import BerberKasa from './BerberKasa'; // Kodunuzun olduğu dosya ismi
+
+// Eğer Tailwind kullanıyorsanız buraya import edin
+// import './index.css'; 
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+
+// window.storage mock (Eğer tarayıcıda doğrudan test ediyorsanız 
+// verilerin kaybolmaması için basit bir localStorage wrapper)
+window.storage = {
+  get: async (key) => {
+    const val = localStorage.getItem(key);
+    return val ? { value: val } : null;
+  },
+  set: async (key, val) => {
+    localStorage.setItem(key, val);
+  }
+};
+
+root.render(
+  <React.StrictMode>
+    <BerberKasa />
+  </React.StrictMode>
+);
 
 // ---- Design tokens -------------------------------------------------------
 const C = {
