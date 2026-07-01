@@ -1,0 +1,1117 @@
+import { useState, useEffect, useCallback } from "react";
+import {
+  Scissors,
+  Plus,
+  Minus,
+  Trash2,
+  Banknote,
+  CreditCard,
+  Check,
+  Receipt,
+  BarChart3,
+  Settings,
+  Clock,
+  X,
+  Package,
+  Users,
+  Tag,
+  Wallet,
+  Printer,
+  AlertTriangle,
+  ListPlus,
+} from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
+
+// ---- Design tokens -------------------------------------------------------
+const C = {
+  ink: "#1A1815",
+  inkSoft: "#242019",
+  inkLine: "#3A342B",
+  paper: "#F3ECDD",
+  paperSoft: "#E8DEC7",
+  paperLine: "#D8CBAA",
+  brass: "#B08D57",
+  brassLight: "#D4B483",
+  red: "#9B2C2C",
+  navy: "#264A73",
+  green: "#4F6B45",
+  muted: "#9C9384",
+};
+
+const FONT_DISPLAY = "'Bebas Neue', 'Arial Narrow', sans-serif";
+const FONT_BODY = "'Inter', system-ui, sans-serif";
+const FONT_MONO = "'JetBrains Mono', ui-monospace, monospace";
+
+const DEFAULT_SERVICES = [
+  { id: "s1", name: "Saç Kesimi", price: 300 },
+  { id: "s2", name: "Sakal Tıraşı", price: 150 },
+  { id: "s3", name: "Saç + Sakal", price: 400 },
+  { id: "s4", name: "Çocuk Kesimi", price: 250 },
+  { id: "s5", name: "Saç Boyama", price: 500 },
+  { id: "s6", name: "Fön", price: 100 },
+  { id: "s7", name: "Kaş Alma", price: 50 },
+  { id: "s8", name: "Cilt Bakımı", price: 200 },
+];
+const DEFAULT_PRODUCTS = [
+  { id: "p1", name: "Şampuan", price: 150, stock: 20 },
+  { id: "p2", name: "Saç Jölesi", price: 120, stock: 15 },
+  { id: "p3", name: "Kolonya", price: 80, stock: 30 },
+];
+const DEFAULT_BARBERS = [{ id: "b1", name: "Usta 1", commissionPct: 0 }];
+const DEFAULT_CAMPAIGNS = [{ id: "c1", name: "Öğrenci İndirimi", type: "percent", value: 10 }];
+
+function todayStr(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function formatTL(n) {
+  return `${Number(n || 0).toLocaleString("tr-TR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ₺`;
+}
+function formatTime(iso) {
+  return new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+}
+function formatPct(n) {
+  return `%${Number(n || 0).toFixed(1).replace(".", ",")}`;
+}
+function parseBulkLines(text) {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => l.split(",").map((p) => p.trim()));
+}
+function getRange(period, dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  if (period === "hafta") {
+    const day = d.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const start = new Date(d);
+    start.setDate(d.getDate() + diffToMonday);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { start, end };
+  }
+  if (period === "ay") {
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    return { start, end };
+  }
+  return { start: d, end: d };
+}
+function inRangeDate(ds, range) {
+  return ds >= todayStr(range.start) && ds <= todayStr(range.end);
+}
+async function loadKey(key, fallback) {
+  try {
+    const r = await window.storage.get(key);
+    if (r && r.value) return JSON.parse(r.value);
+    return fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function PoleStripe({ height = 10 }) {
+  return (
+    <div
+      style={{
+        height,
+        width: "100%",
+        backgroundImage: `repeating-linear-gradient(45deg, ${C.red} 0px, ${C.red} 10px, ${C.paper} 10px, ${C.paper} 20px, ${C.navy} 20px, ${C.navy} 30px)`,
+      }}
+    />
+  );
+}
+function TornEdge({ onColor = C.ink }) {
+  return (
+    <div
+      style={{
+        height: 12,
+        width: "100%",
+        backgroundColor: onColor,
+        backgroundImage: `linear-gradient(135deg, ${onColor} 50%, transparent 50%), linear-gradient(-135deg, ${onColor} 50%, transparent 50%)`,
+        backgroundSize: "16px 16px",
+        backgroundRepeat: "repeat-x",
+        backgroundPosition: "left top",
+      }}
+    />
+  );
+}
+function Toast({ message, onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2600);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <div
+      className="fixed bottom-5 right-5 left-5 sm:left-auto z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg"
+      style={{ backgroundColor: C.brass, color: C.ink, fontFamily: FONT_BODY }}
+    >
+      <Check size={18} className="shrink-0" />
+      <span className="text-sm font-semibold">{message}</span>
+    </div>
+  );
+}
+function SectionCard({ title, icon: Icon, children }) {
+  return (
+    <div className="mb-6">
+      <div className="flex items-center gap-2 mb-3">
+        <Icon size={16} style={{ color: C.brass }} />
+        <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 19, letterSpacing: "0.03em" }}>{title}</h3>
+      </div>
+      {children}
+    </div>
+  );
+}
+function StatCard({ label, value, sub, dark }) {
+  return (
+    <div
+      className="p-4 rounded-lg"
+      style={
+        dark
+          ? { backgroundColor: C.ink, color: C.paper }
+          : { backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }
+      }
+    >
+      <div style={{ color: dark ? C.muted : C.muted }} className="text-xs mb-1">
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: FONT_MONO,
+          fontSize: dark ? 26 : 20,
+          color: dark ? C.brassLight : C.ink,
+          fontWeight: 700,
+        }}
+      >
+        {value}
+      </div>
+      {sub && (
+        <div style={{ color: C.muted }} className="text-xs mt-1">
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function BerberKasa() {
+  const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState("satis");
+  const [services, setServices] = useState(DEFAULT_SERVICES);
+  const [products, setProducts] = useState(DEFAULT_PRODUCTS);
+  const [barbers, setBarbers] = useState(DEFAULT_BARBERS);
+  const [campaigns, setCampaigns] = useState(DEFAULT_CAMPAIGNS);
+  const [expenses, setExpenses] = useState([]);
+  const [sales, setSales] = useState([]);
+
+  const [cart, setCart] = useState([]);
+  const [payment, setPayment] = useState("Nakit");
+  const [barberId, setBarberId] = useState("");
+  const [campaignId, setCampaignId] = useState("");
+  const [lastSale, setLastSale] = useState(null);
+
+  const [now, setNow] = useState(new Date());
+  const [toast, setToast] = useState(null);
+  const [reportDate, setReportDate] = useState(todayStr());
+  const [period, setPeriod] = useState("gun");
+
+  const [newSvcName, setNewSvcName] = useState("");
+  const [newSvcPrice, setNewSvcPrice] = useState("");
+  const [newProdName, setNewProdName] = useState("");
+  const [newProdPrice, setNewProdPrice] = useState("");
+  const [newProdStock, setNewProdStock] = useState("");
+  const [newBarberName, setNewBarberName] = useState("");
+  const [newCampName, setNewCampName] = useState("");
+  const [newCampType, setNewCampType] = useState("percent");
+  const [newCampValue, setNewCampValue] = useState("");
+  const [newExpDesc, setNewExpDesc] = useState("");
+  const [newExpAmount, setNewExpAmount] = useState("");
+  const [newExpDate, setNewExpDate] = useState(todayStr());
+
+  const [bulkSvcOpen, setBulkSvcOpen] = useState(false);
+  const [bulkSvcText, setBulkSvcText] = useState("");
+  const [bulkProdOpen, setBulkProdOpen] = useState(false);
+  const [bulkProdText, setBulkProdText] = useState("");
+  const [bulkBarberOpen, setBulkBarberOpen] = useState(false);
+  const [bulkBarberText, setBulkBarberText] = useState("");
+  const [bulkCampOpen, setBulkCampOpen] = useState(false);
+  const [bulkCampText, setBulkCampText] = useState("");
+  const [bulkCampType, setBulkCampType] = useState("percent");
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      const [svc, prod, brb, camp, exp, sl] = await Promise.all([
+        loadKey("services-list", DEFAULT_SERVICES),
+        loadKey("products-list", DEFAULT_PRODUCTS),
+        loadKey("barbers-list", DEFAULT_BARBERS),
+        loadKey("campaigns-list", DEFAULT_CAMPAIGNS),
+        loadKey("expenses-log", []),
+        loadKey("sales-log", []),
+      ]);
+      setServices(svc);
+      setProducts(prod);
+      setBarbers(brb);
+      setCampaigns(camp);
+      setExpenses(exp);
+      setSales(sl);
+      if (brb.length) setBarberId(brb[0].id);
+      setLoaded(true);
+    })();
+  }, []);
+
+  const persist = useCallback(async (key, value, setter) => {
+    setter(value);
+    try {
+      await window.storage.set(key, JSON.stringify(value));
+    } catch (e) {
+      console.error(`${key} kaydedilemedi`, e);
+    }
+  }, []);
+  const saveServices = (v) => persist("services-list", v, setServices);
+  const saveProducts = (v) => persist("products-list", v, setProducts);
+  const saveBarbers = (v) => persist("barbers-list", v, setBarbers);
+  const saveCampaigns = (v) => persist("campaigns-list", v, setCampaigns);
+  const saveExpenses = (v) => persist("expenses-log", v, setExpenses);
+  const saveSales = (v) => persist("sales-log", v, setSales);
+
+  // ---- cart ----
+  function cartQtyFor(refId, type) {
+    const it = cart.find((i) => i.refId === refId && i.type === type);
+    return it ? it.qty : 0;
+  }
+  function addService(svc) {
+    setCart((prev) => {
+      const found = prev.find((i) => i.refId === svc.id && i.type === "service");
+      if (found) return prev.map((i) => (i === found ? { ...i, qty: i.qty + 1 } : i));
+      return [...prev, { refId: svc.id, type: "service", name: svc.name, price: svc.price, qty: 1 }];
+    });
+  }
+  function addProduct(p) {
+    const inCart = cartQtyFor(p.id, "product");
+    if (inCart >= p.stock) {
+      setToast(`${p.name} için stok yetersiz`);
+      return;
+    }
+    setCart((prev) => {
+      const found = prev.find((i) => i.refId === p.id && i.type === "product");
+      if (found) return prev.map((i) => (i === found ? { ...i, qty: i.qty + 1 } : i));
+      return [...prev, { refId: p.id, type: "product", name: p.name, price: p.price, qty: 1 }];
+    });
+  }
+  function decCart(refId, type) {
+    setCart((prev) =>
+      prev.map((i) => (i.refId === refId && i.type === type ? { ...i, qty: i.qty - 1 } : i)).filter((i) => i.qty > 0)
+    );
+  }
+  function removeCart(refId, type) {
+    setCart((prev) => prev.filter((i) => !(i.refId === refId && i.type === type)));
+  }
+  const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  const activeCampaign = campaigns.find((c) => c.id === campaignId);
+  const discountAmount = activeCampaign
+    ? Math.min(
+        subtotal,
+        activeCampaign.type === "percent" ? (subtotal * activeCampaign.value) / 100 : activeCampaign.value
+      )
+    : 0;
+  const total = Math.max(0, subtotal - discountAmount);
+
+  async function completeSale() {
+    if (cart.length === 0) return;
+    const barber = barbers.find((b) => b.id === barberId);
+    const saleDate = new Date().toISOString();
+    const sale = {
+      id: `${Date.now()}`,
+      date: saleDate,
+      items: cart,
+      subtotal,
+      discount: activeCampaign ? { name: activeCampaign.name, amount: discountAmount } : null,
+      total,
+      payment,
+      barberId: barberId || null,
+      barberName: barber ? barber.name : "Belirtilmedi",
+    };
+    await saveSales([sale, ...sales]);
+
+    // stock decrement
+    const prodUpdates = {};
+    cart.forEach((i) => {
+      if (i.type === "product") prodUpdates[i.refId] = (prodUpdates[i.refId] || 0) + i.qty;
+    });
+    if (Object.keys(prodUpdates).length) {
+      const nextProducts = products.map((p) =>
+        prodUpdates[p.id] ? { ...p, stock: Math.max(0, p.stock - prodUpdates[p.id]) } : p
+      );
+      await saveProducts(nextProducts);
+    }
+
+    setLastSale(sale);
+    setCart([]);
+    setCampaignId("");
+    setToast("Satış kaydedildi");
+  }
+
+  function printReceipt() {
+    if (!lastSale) return;
+    window.print();
+  }
+
+  // ---- report ----
+  const range = getRange(period, reportDate);
+  const periodSales = sales.filter((s) => inRangeDate(todayStr(new Date(s.date)), range));
+  const periodExpenses = expenses.filter((e) => inRangeDate(e.date, range));
+  const revenue = periodSales.reduce((s, x) => s + x.total, 0);
+  const periodSubtotal = periodSales.reduce((s, x) => s + (x.subtotal || x.total), 0);
+  const discountTotal = periodSales.reduce((s, x) => s + (x.discount ? x.discount.amount : 0), 0);
+  const discountPct = periodSubtotal > 0 ? (discountTotal / periodSubtotal) * 100 : 0;
+  const expenseTotal = periodExpenses.reduce((s, x) => s + x.amount, 0);
+  const netProfit = revenue - expenseTotal;
+  const cashTotal = periodSales.filter((s) => s.payment === "Nakit").reduce((s, x) => s + x.total, 0);
+  const cardTotal = periodSales.filter((s) => s.payment === "Kart").reduce((s, x) => s + x.total, 0);
+  const cashPct = revenue > 0 ? (cashTotal / revenue) * 100 : 0;
+  const cardPct = revenue > 0 ? (cardTotal / revenue) * 100 : 0;
+
+  const barberStats = {};
+  periodSales.forEach((s) => {
+    const key = s.barberId || "none";
+    if (!barberStats[key]) {
+      const b = barbers.find((x) => x.id === s.barberId);
+      barberStats[key] = { name: s.barberName, total: 0, count: 0, commissionPct: b ? b.commissionPct : 0 };
+    }
+    barberStats[key].total += s.total;
+    barberStats[key].count += 1;
+  });
+
+  const chartData = [];
+  if (period !== "gun") {
+    const cur = new Date(range.start);
+    while (cur <= range.end) {
+      const ds = todayStr(cur);
+      const rev = sales.filter((s) => todayStr(new Date(s.date)) === ds).reduce((a, b) => a + b.total, 0);
+      chartData.push({ label: cur.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit" }), Ciro: rev });
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
+
+  async function clearHistory() {
+    if (window.confirm("Tüm satış geçmişi silinecek. Emin misiniz?")) {
+      await saveSales([]);
+      setToast("Geçmiş temizlendi");
+    }
+  }
+  async function deleteSale(id) {
+    if (window.confirm("Bu işlem silinsin mi?")) {
+      await saveSales(sales.filter((s) => s.id !== id));
+      setToast("İşlem silindi");
+    }
+  }
+
+  // ---- services / products / barbers / campaigns / expenses mgmt ----
+  const updateService = (id, patch) => saveServices(services.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  const deleteService = (id) => saveServices(services.filter((s) => s.id !== id));
+  function addNewService() {
+    const price = parseFloat(newSvcPrice);
+    if (!newSvcName.trim() || isNaN(price) || price < 0) return;
+    saveServices([...services, { id: `s${Date.now()}`, name: newSvcName.trim(), price }]);
+    setNewSvcName("");
+    setNewSvcPrice("");
+  }
+
+  const updateProduct = (id, patch) => saveProducts(products.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const deleteProduct = (id) => saveProducts(products.filter((p) => p.id !== id));
+  function addNewProduct() {
+    const price = parseFloat(newProdPrice);
+    const stock = parseInt(newProdStock, 10);
+    if (!newProdName.trim() || isNaN(price) || price < 0 || isNaN(stock) || stock < 0) return;
+    saveProducts([...products, { id: `p${Date.now()}`, name: newProdName.trim(), price, stock }]);
+    setNewProdName("");
+    setNewProdPrice("");
+    setNewProdStock("");
+  }
+
+  const updateBarber = (id, patch) => saveBarbers(barbers.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+  const deleteBarber = (id) => saveBarbers(barbers.filter((b) => b.id !== id));
+  function addNewBarber() {
+    if (!newBarberName.trim()) return;
+    saveBarbers([...barbers, { id: `b${Date.now()}`, name: newBarberName.trim(), commissionPct: 0 }]);
+    setNewBarberName("");
+  }
+
+  const deleteCampaign = (id) => saveCampaigns(campaigns.filter((c) => c.id !== id));
+  function addNewCampaign() {
+    const value = parseFloat(newCampValue);
+    if (!newCampName.trim() || isNaN(value) || value < 0) return;
+    saveCampaigns([...campaigns, { id: `c${Date.now()}`, name: newCampName.trim(), type: newCampType, value }]);
+    setNewCampName("");
+    setNewCampValue("");
+  }
+
+  const deleteExpense = (id) => saveExpenses(expenses.filter((e) => e.id !== id));
+  function addNewExpense() {
+    const amount = parseFloat(newExpAmount);
+    if (!newExpDesc.trim() || isNaN(amount) || amount < 0) return;
+    saveExpenses([{ id: `e${Date.now()}`, date: newExpDate, desc: newExpDesc.trim(), amount }, ...expenses]);
+    setNewExpDesc("");
+    setNewExpAmount("");
+  }
+
+  function addBulkServices() {
+    const rows = parseBulkLines(bulkSvcText);
+    const items = rows
+      .map(([name, price], idx) => ({ id: `s${Date.now()}_${idx}`, name, price: parseFloat(price) }))
+      .filter((r) => r.name && !isNaN(r.price) && r.price >= 0);
+    if (items.length === 0) return;
+    saveServices([...services, ...items]);
+    setBulkSvcText("");
+    setBulkSvcOpen(false);
+    setToast(`${items.length} hizmet eklendi`);
+  }
+  function addBulkProducts() {
+    const rows = parseBulkLines(bulkProdText);
+    const items = rows
+      .map(([name, price, stock], idx) => ({
+        id: `p${Date.now()}_${idx}`,
+        name,
+        price: parseFloat(price),
+        stock: parseInt(stock, 10) || 0,
+      }))
+      .filter((r) => r.name && !isNaN(r.price) && r.price >= 0);
+    if (items.length === 0) return;
+    saveProducts([...products, ...items]);
+    setBulkProdText("");
+    setBulkProdOpen(false);
+    setToast(`${items.length} ürün eklendi`);
+  }
+  function addBulkBarbers() {
+    const rows = parseBulkLines(bulkBarberText);
+    const items = rows
+      .map(([name, pct], idx) => ({ id: `b${Date.now()}_${idx}`, name, commissionPct: parseFloat(pct) || 0 }))
+      .filter((r) => r.name);
+    if (items.length === 0) return;
+    saveBarbers([...barbers, ...items]);
+    setBulkBarberText("");
+    setBulkBarberOpen(false);
+    setToast(`${items.length} personel eklendi`);
+  }
+  function addBulkCampaigns() {
+    const rows = parseBulkLines(bulkCampText);
+    const items = rows
+      .map(([name, value], idx) => ({ id: `c${Date.now()}_${idx}`, name, type: bulkCampType, value: parseFloat(value) }))
+      .filter((r) => r.name && !isNaN(r.value) && r.value >= 0);
+    if (items.length === 0) return;
+    saveCampaigns([...campaigns, ...items]);
+    setBulkCampText("");
+    setBulkCampOpen(false);
+    setToast(`${items.length} kampanya eklendi`);
+  }
+
+  if (!loaded) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: C.ink, color: C.paper, fontFamily: FONT_BODY }}
+      >
+        <div className="flex items-center gap-3">
+          <Scissors className="animate-pulse" size={22} />
+          <span>Kasa açılıyor…</span>
+        </div>
+      </div>
+    );
+  }
+
+  const tabs = [
+    { key: "satis", label: "Satış", icon: Receipt },
+    { key: "stok", label: "Stok", icon: Package },
+    { key: "rapor", label: "Rapor", icon: BarChart3 },
+    { key: "giderler", label: "Giderler", icon: Wallet },
+    { key: "ayarlar", label: "Ayarlar", icon: Settings },
+  ];
+
+  return (
+    <div style={{ backgroundColor: C.ink, color: C.paper, fontFamily: FONT_BODY, minHeight: "100vh" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; }
+        input:focus, select:focus, button:focus-visible { outline: 2px solid ${C.brassLight}; outline-offset: 1px; }
+        #print-receipt { display: none; }
+        @media print {
+          body * { visibility: hidden; }
+          #print-receipt, #print-receipt * { visibility: visible; }
+          #print-receipt { display: block; position: absolute; top: 0; left: 0; width: 100%; padding: 20px; color: #000; }
+        }
+      `}</style>
+
+      <PoleStripe />
+
+      <header className="px-5 sm:px-8 py-5 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-11 h-11 rounded-full flex items-center justify-center shrink-0"
+            style={{ backgroundColor: C.brass, color: C.ink }}
+          >
+            <Scissors size={22} />
+          </div>
+          <div>
+            <h1 style={{ fontFamily: FONT_DISPLAY, letterSpacing: "0.04em", color: C.paper, fontSize: 30, lineHeight: 1 }}>
+              BERBER KASA
+            </h1>
+            <p style={{ color: C.muted, fontSize: 12.5 }}>Satış, stok &amp; kasa yönetimi</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-sm" style={{ color: C.muted, fontFamily: FONT_MONO }}>
+          <Clock size={15} />
+          <span>
+            {now.toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" })} ·{" "}
+            {now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        </div>
+      </header>
+
+      <nav className="px-5 sm:px-8 flex gap-1.5 overflow-x-auto">
+        {tabs.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-sm font-semibold transition-colors shrink-0"
+              style={{ backgroundColor: active ? C.paper : C.inkSoft, color: active ? C.ink : C.muted }}
+            >
+              <Icon size={16} />
+              {t.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      <main style={{ backgroundColor: C.paper, color: C.ink, minHeight: "70vh" }} className="px-5 sm:px-8 py-6 rounded-tr-lg">
+        {tab === "satis" && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-2">
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, letterSpacing: "0.03em" }} className="mb-3">
+                HİZMETLER
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+                {services.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => addService(s)}
+                    className="text-left p-4 rounded-lg transition-transform hover:-translate-y-0.5"
+                    style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <Scissors size={15} style={{ color: C.brass }} />
+                      <Plus size={15} style={{ color: C.muted }} />
+                    </div>
+                    <div className="font-semibold text-sm leading-tight">{s.name}</div>
+                    <div style={{ fontFamily: FONT_MONO, color: C.brass }} className="text-sm mt-1">
+                      {formatTL(s.price)}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, letterSpacing: "0.03em" }} className="mb-3">
+                ÜRÜNLER
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {products.map((p) => {
+                  const remaining = p.stock - cartQtyFor(p.id, "product");
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => addProduct(p)}
+                      disabled={remaining <= 0}
+                      className="text-left p-4 rounded-lg transition-transform hover:-translate-y-0.5 disabled:opacity-40"
+                      style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <Package size={15} style={{ color: C.navy }} />
+                        <Plus size={15} style={{ color: C.muted }} />
+                      </div>
+                      <div className="font-semibold text-sm leading-tight">{p.name}</div>
+                      <div style={{ fontFamily: FONT_MONO, color: C.brass }} className="text-sm mt-1">
+                        {formatTL(p.price)}
+                      </div>
+                      <div style={{ color: remaining <= 3 ? C.red : C.muted }} className="text-xs mt-1">
+                        {remaining > 0 ? `${remaining} stokta` : "Stok yok"}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div style={{ backgroundColor: C.paperSoft, border: `1px dashed ${C.paperLine}` }} className="rounded-t-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Receipt size={16} style={{ color: C.red }} />
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, letterSpacing: "0.03em" }}>FİŞ</span>
+                </div>
+
+                {barbers.length > 0 && (
+                  <div className="mb-3">
+                    <label className="text-xs font-medium block mb-1" style={{ color: C.muted }}>Berber</label>
+                    <select
+                      value={barberId}
+                      onChange={(e) => setBarberId(e.target.value)}
+                      className="w-full px-2 py-1.5 rounded text-sm"
+                      style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper }}
+                    >
+                      {barbers.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {cart.length === 0 ? (
+                  <p style={{ color: C.muted }} className="text-sm py-6 text-center">
+                    Fişe hizmet veya ürün eklemek için soldan seçim yapın.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {cart.map((i) => (
+                      <div key={`${i.type}-${i.refId}`} className="flex items-center justify-between gap-2 text-sm" style={{ fontFamily: FONT_MONO }}>
+                        <span className="flex-1 truncate" style={{ fontFamily: FONT_BODY }}>{i.name}</span>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => decCart(i.refId, i.type)} className="w-6 h-6 rounded flex items-center justify-center" style={{ backgroundColor: C.paperLine }}>
+                            <Minus size={12} />
+                          </button>
+                          <span className="w-5 text-center">{i.qty}</span>
+                          <button
+                            onClick={() => (i.type === "service" ? addService({ id: i.refId, name: i.name, price: i.price }) : addProduct(products.find((p) => p.id === i.refId)))}
+                            className="w-6 h-6 rounded flex items-center justify-center"
+                            style={{ backgroundColor: C.paperLine }}
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                        <span className="w-16 text-right">{formatTL(i.price * i.qty)}</span>
+                        <button onClick={() => removeCart(i.refId, i.type)} style={{ color: C.red }}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ borderTop: `1px dashed ${C.paperLine}` }} className="mt-4 pt-3 space-y-3">
+                  {campaigns.length > 0 && (
+                    <div>
+                      <label className="text-xs font-medium block mb-1" style={{ color: C.muted }}>Kampanya</label>
+                      <select
+                        value={campaignId}
+                        onChange={(e) => setCampaignId(e.target.value)}
+                        className="w-full px-2 py-1.5 rounded text-sm"
+                        style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper }}
+                      >
+                        <option value="">İndirim yok</option>
+                        {campaigns.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({c.type === "percent" ? `%${c.value}` : formatTL(c.value)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {activeCampaign && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span style={{ color: C.muted }}>Ara toplam</span>
+                      <span style={{ fontFamily: FONT_MONO, color: C.muted, textDecoration: "line-through" }}>{formatTL(subtotal)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-sm">TOPLAM</span>
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 20, color: C.brass, fontWeight: 700 }}>{formatTL(total)}</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setPayment("Nakit")}
+                      className="flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium"
+                      style={{ backgroundColor: payment === "Nakit" ? C.ink : "transparent", color: payment === "Nakit" ? C.paper : C.ink, border: `1px solid ${C.ink}` }}
+                    >
+                      <Banknote size={14} /> Nakit
+                    </button>
+                    <button
+                      onClick={() => setPayment("Kart")}
+                      className="flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium"
+                      style={{ backgroundColor: payment === "Kart" ? C.ink : "transparent", color: payment === "Kart" ? C.paper : C.ink, border: `1px solid ${C.ink}` }}
+                    >
+                      <CreditCard size={14} /> Kart
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={completeSale}
+                    disabled={cart.length === 0}
+                    className="w-full py-3 rounded-md font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-40"
+                    style={{ backgroundColor: C.brass, color: C.ink }}
+                  >
+                    <Check size={16} /> Satışı Tamamla
+                  </button>
+
+                  {lastSale && (
+                    <button
+                      onClick={printReceipt}
+                      className="w-full py-2.5 rounded-md font-medium text-sm flex items-center justify-center gap-2"
+                      style={{ border: `1px solid ${C.ink}`, color: C.ink }}
+                    >
+                      <Printer size={15} /> Son Fişi Yazdır
+                    </button>
+                  )}
+                </div>
+              </div>
+              <TornEdge onColor={C.paperSoft} />
+            </div>
+          </div>
+        )}
+
+        {tab === "stok" && (
+          <div>
+            <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, letterSpacing: "0.03em" }} className="mb-4">STOK YÖNETİMİ</h2>
+            <div className="space-y-2 mb-6">
+              {products.map((p) => (
+                <div key={p.id} className="flex items-center gap-2 p-2.5 rounded-md flex-wrap" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}>
+                  {p.stock <= 5 && <AlertTriangle size={15} style={{ color: C.red }} />}
+                  <input value={p.name} onChange={(e) => updateProduct(p.id, { name: e.target.value })} className="flex-1 min-w-[100px] px-2 py-1.5 rounded text-sm bg-transparent" style={{ border: `1px solid ${C.paperLine}` }} />
+                  <input type="number" value={p.price} onChange={(e) => updateProduct(p.id, { price: parseFloat(e.target.value) || 0 })} className="w-24 px-2 py-1.5 rounded text-sm bg-transparent" style={{ border: `1px solid ${C.paperLine}`, fontFamily: FONT_MONO }} />
+                  <span style={{ color: C.muted }} className="text-xs">₺</span>
+                  <input type="number" value={p.stock} onChange={(e) => updateProduct(p.id, { stock: parseInt(e.target.value, 10) || 0 })} className="w-20 px-2 py-1.5 rounded text-sm bg-transparent" style={{ border: `1px solid ${p.stock <= 5 ? C.red : C.paperLine}`, fontFamily: FONT_MONO }} />
+                  <span style={{ color: C.muted }} className="text-xs">adet</span>
+                  <button onClick={() => deleteProduct(p.id)} style={{ color: C.red }} className="p-1.5"><Trash2 size={15} /></button>
+                </div>
+              ))}
+              {products.length === 0 && <p style={{ color: C.muted }} className="text-sm">Henüz ürün eklenmedi.</p>}
+            </div>
+            <div style={{ borderTop: `1px dashed ${C.paperLine}` }} className="pt-4">
+              <div className="text-sm font-semibold mb-2">Yeni Ürün Ekle</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input placeholder="Ürün adı" value={newProdName} onChange={(e) => setNewProdName(e.target.value)} className="flex-1 min-w-[120px] px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper }} />
+                <input type="number" placeholder="Fiyat" value={newProdPrice} onChange={(e) => setNewProdPrice(e.target.value)} className="w-24 px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }} />
+                <input type="number" placeholder="Stok" value={newProdStock} onChange={(e) => setNewProdStock(e.target.value)} className="w-20 px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }} />
+                <button onClick={addNewProduct} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold" style={{ backgroundColor: C.brass, color: C.ink }}><Plus size={15} /> Ekle</button>
+              </div>
+
+              <button onClick={() => setBulkProdOpen((v) => !v)} className="flex items-center gap-1.5 mt-3 text-sm font-medium" style={{ color: C.navy }}>
+                <ListPlus size={15} /> {bulkProdOpen ? "Toplu eklemeyi kapat" : "Toplu ürün ekle"}
+              </button>
+              {bulkProdOpen && (
+                <div className="mt-2">
+                  <textarea
+                    value={bulkProdText}
+                    onChange={(e) => setBulkProdText(e.target.value)}
+                    placeholder={"Her satıra bir ürün: Ad, Fiyat, Stok\nÖrn: Şampuan, 150, 20\nJöle, 120, 15"}
+                    rows={4}
+                    className="w-full px-3 py-2 rounded text-sm mb-2"
+                    style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }}
+                  />
+                  <button onClick={addBulkProducts} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold" style={{ backgroundColor: C.ink, color: C.paper }}>
+                    <Plus size={15} /> Listeyi Ekle
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === "rapor" && (
+          <div>
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, letterSpacing: "0.03em" }}>RAPOR</h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex rounded-md overflow-hidden" style={{ border: `1px solid ${C.ink}` }}>
+                  {[["gun", "Gün"], ["hafta", "Hafta"], ["ay", "Ay"]].map(([k, l]) => (
+                    <button key={k} onClick={() => setPeriod(k)} className="px-3 py-1.5 text-sm font-medium" style={{ backgroundColor: period === k ? C.ink : "transparent", color: period === k ? C.paper : C.ink }}>{l}</button>
+                  ))}
+                </div>
+                <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-3 py-2 rounded-md text-sm" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}`, fontFamily: FONT_MONO }} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              <StatCard label="CİRO" value={formatTL(revenue)} sub={`${periodSales.length} işlem`} dark />
+              <StatCard label="İNDİRİM" value={formatTL(discountTotal)} sub={discountTotal > 0 ? `ciro üzerinden ${formatPct(discountPct)}` : undefined} />
+              <StatCard label="GİDER" value={formatTL(expenseTotal)} />
+              <StatCard label="NET KÂR" value={formatTL(netProfit)} sub={netProfit >= 0 ? "kârda" : "zararda"} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <div className="p-3 rounded-md flex items-center gap-2" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}>
+                <Banknote size={14} style={{ color: C.muted }} /><span className="text-sm" style={{ color: C.muted }}>Nakit</span>
+                <span style={{ fontFamily: FONT_MONO, marginLeft: "auto" }}>{formatTL(cashTotal)}</span>
+                <span style={{ fontFamily: FONT_MONO, color: C.brass }} className="text-xs">{formatPct(cashPct)}</span>
+              </div>
+              <div className="p-3 rounded-md flex items-center gap-2" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}>
+                <CreditCard size={14} style={{ color: C.muted }} /><span className="text-sm" style={{ color: C.muted }}>Kart</span>
+                <span style={{ fontFamily: FONT_MONO, marginLeft: "auto" }}>{formatTL(cardTotal)}</span>
+                <span style={{ fontFamily: FONT_MONO, color: C.brass }} className="text-xs">{formatPct(cardPct)}</span>
+              </div>
+            </div>
+
+            {period !== "gun" && chartData.length > 0 && (
+              <div className="mb-6 p-3 rounded-lg" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}`, height: 220 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.paperLine} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: C.muted }} />
+                    <YAxis tick={{ fontSize: 11, fill: C.muted }} width={40} />
+                    <Tooltip formatter={(v) => formatTL(v)} contentStyle={{ fontFamily: FONT_MONO, fontSize: 12 }} />
+                    <Bar dataKey="Ciro" fill={C.brass} radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {Object.keys(barberStats).length > 0 && (
+              <div className="mb-6">
+                <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 18, letterSpacing: "0.03em" }} className="mb-2">BERBER BAZLI SATIŞ</h3>
+                <div className="space-y-1.5">
+                  {Object.values(barberStats).sort((a, b) => b.total - a.total).map((b, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 rounded-md text-sm" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}>
+                      <span className="font-medium">{b.name}</span>
+                      <span style={{ color: C.muted }}>{b.count} işlem</span>
+                      <span style={{ fontFamily: FONT_MONO }}>{formatTL(b.total)}</span>
+                      <span style={{ fontFamily: FONT_MONO, color: C.muted }}>{formatPct(revenue > 0 ? (b.total / revenue) * 100 : 0)}</span>
+                      {b.commissionPct > 0 && <span style={{ fontFamily: FONT_MONO, color: C.brass }}>Prim: {formatTL((b.total * b.commissionPct) / 100)}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 18, letterSpacing: "0.03em" }} className="mb-2">İŞLEMLER</h3>
+            {periodSales.length === 0 ? (
+              <p style={{ color: C.muted }} className="text-sm">Bu dönemde satış bulunmuyor.</p>
+            ) : (
+              <div className="space-y-2">
+                {periodSales.map((s) => (
+                  <div key={s.id} className="p-3 rounded-md flex items-center justify-between gap-3 flex-wrap" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}>
+                    <div className="flex items-center gap-3">
+                      <span style={{ fontFamily: FONT_MONO, color: C.muted }} className="text-xs">{todayStr(new Date(s.date))} {formatTime(s.date)}</span>
+                      <span className="text-sm">{s.items.map((i) => `${i.name}${i.qty > 1 ? ` x${i.qty}` : ""}`).join(", ")}</span>
+                      <span className="text-xs" style={{ color: C.muted }}>{s.barberName}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: s.payment === "Nakit" ? C.navy : C.red, color: C.paper }}>{s.payment}</span>
+                      <span style={{ fontFamily: FONT_MONO, fontWeight: 700 }}>{formatTL(s.total)}</span>
+                      <button onClick={() => deleteSale(s.id)} style={{ color: C.red }} title="Bu işlemi sil">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <button onClick={clearHistory} className="mt-4 text-xs flex items-center gap-1.5" style={{ color: C.red }}>
+                  <Trash2 size={13} /> Tüm satış geçmişini temizle
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "giderler" && (
+          <div>
+            <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, letterSpacing: "0.03em" }} className="mb-4">GİDERLER</h2>
+            <StatCard label="TOPLAM GİDER" value={formatTL(expenses.reduce((s, e) => s + e.amount, 0))} dark />
+            <div className="mt-4 space-y-2 mb-6">
+              {expenses.map((e) => (
+                <div key={e.id} className="flex items-center justify-between gap-2 p-2.5 rounded-md" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}>
+                  <span style={{ fontFamily: FONT_MONO, color: C.muted }} className="text-xs">{e.date}</span>
+                  <span className="flex-1 text-sm">{e.desc}</span>
+                  <span style={{ fontFamily: FONT_MONO }} className="font-medium">{formatTL(e.amount)}</span>
+                  <button onClick={() => deleteExpense(e.id)} style={{ color: C.red }}><Trash2 size={15} /></button>
+                </div>
+              ))}
+              {expenses.length === 0 && <p style={{ color: C.muted }} className="text-sm">Henüz gider eklenmedi.</p>}
+            </div>
+            <div style={{ borderTop: `1px dashed ${C.paperLine}` }} className="pt-4">
+              <div className="text-sm font-semibold mb-2">Yeni Gider Ekle</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input type="date" value={newExpDate} onChange={(e) => setNewExpDate(e.target.value)} className="px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }} />
+                <input placeholder="Açıklama (kira, malzeme...)" value={newExpDesc} onChange={(e) => setNewExpDesc(e.target.value)} className="flex-1 min-w-[140px] px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper }} />
+                <input type="number" placeholder="Tutar" value={newExpAmount} onChange={(e) => setNewExpAmount(e.target.value)} className="w-24 px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }} />
+                <button onClick={addNewExpense} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold" style={{ backgroundColor: C.brass, color: C.ink }}><Plus size={15} /> Ekle</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "ayarlar" && (
+          <div>
+            <SectionCard title="HİZMETLER" icon={Scissors}>
+              <div className="space-y-2 mb-4">
+                {services.map((s) => (
+                  <div key={s.id} className="flex items-center gap-2 p-2.5 rounded-md" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}>
+                    <input value={s.name} onChange={(e) => updateService(s.id, { name: e.target.value })} className="flex-1 px-2 py-1.5 rounded text-sm bg-transparent" style={{ border: `1px solid ${C.paperLine}` }} />
+                    <input type="number" value={s.price} onChange={(e) => updateService(s.id, { price: parseFloat(e.target.value) || 0 })} className="w-24 px-2 py-1.5 rounded text-sm bg-transparent" style={{ border: `1px solid ${C.paperLine}`, fontFamily: FONT_MONO }} />
+                    <span style={{ color: C.muted }} className="text-xs">₺</span>
+                    <button onClick={() => deleteService(s.id)} style={{ color: C.red }} className="p-1.5"><Trash2 size={15} /></button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input placeholder="Hizmet adı" value={newSvcName} onChange={(e) => setNewSvcName(e.target.value)} className="flex-1 min-w-[120px] px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper }} />
+                <input type="number" placeholder="Fiyat" value={newSvcPrice} onChange={(e) => setNewSvcPrice(e.target.value)} className="w-24 px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }} />
+                <button onClick={addNewService} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold" style={{ backgroundColor: C.brass, color: C.ink }}><Plus size={15} /> Ekle</button>
+              </div>
+
+              <button onClick={() => setBulkSvcOpen((v) => !v)} className="flex items-center gap-1.5 mt-3 text-sm font-medium" style={{ color: C.navy }}>
+                <ListPlus size={15} /> {bulkSvcOpen ? "Toplu eklemeyi kapat" : "Toplu hizmet ekle"}
+              </button>
+              {bulkSvcOpen && (
+                <div className="mt-2">
+                  <textarea
+                    value={bulkSvcText}
+                    onChange={(e) => setBulkSvcText(e.target.value)}
+                    placeholder={"Her satıra bir hizmet: Ad, Fiyat\nÖrn: Saç Kesimi, 300\nSakal Tıraşı, 150"}
+                    rows={4}
+                    className="w-full px-3 py-2 rounded text-sm mb-2"
+                    style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }}
+                  />
+                  <button onClick={addBulkServices} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold" style={{ backgroundColor: C.ink, color: C.paper }}>
+                    <Plus size={15} /> Listeyi Ekle
+                  </button>
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard title="PERSONEL" icon={Users}>
+              <div className="space-y-2 mb-4">
+                {barbers.map((b) => (
+                  <div key={b.id} className="flex items-center gap-2 p-2.5 rounded-md" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}>
+                    <input value={b.name} onChange={(e) => updateBarber(b.id, { name: e.target.value })} className="flex-1 px-2 py-1.5 rounded text-sm bg-transparent" style={{ border: `1px solid ${C.paperLine}` }} />
+                    <input type="number" value={b.commissionPct} onChange={(e) => updateBarber(b.id, { commissionPct: parseFloat(e.target.value) || 0 })} className="w-16 px-2 py-1.5 rounded text-sm bg-transparent" style={{ border: `1px solid ${C.paperLine}`, fontFamily: FONT_MONO }} />
+                    <span style={{ color: C.muted }} className="text-xs">% prim</span>
+                    <button onClick={() => deleteBarber(b.id)} style={{ color: C.red }} className="p-1.5"><Trash2 size={15} /></button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input placeholder="Berber adı" value={newBarberName} onChange={(e) => setNewBarberName(e.target.value)} className="flex-1 min-w-[120px] px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper }} />
+                <button onClick={addNewBarber} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold" style={{ backgroundColor: C.brass, color: C.ink }}><Plus size={15} /> Ekle</button>
+              </div>
+
+              <button onClick={() => setBulkBarberOpen((v) => !v)} className="flex items-center gap-1.5 mt-3 text-sm font-medium" style={{ color: C.navy }}>
+                <ListPlus size={15} /> {bulkBarberOpen ? "Toplu eklemeyi kapat" : "Toplu personel ekle"}
+              </button>
+              {bulkBarberOpen && (
+                <div className="mt-2">
+                  <textarea
+                    value={bulkBarberText}
+                    onChange={(e) => setBulkBarberText(e.target.value)}
+                    placeholder={"Her satıra bir personel: Ad, Prim%\nÖrn: Ahmet, 10\nMehmet, 15"}
+                    rows={4}
+                    className="w-full px-3 py-2 rounded text-sm mb-2"
+                    style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }}
+                  />
+                  <button onClick={addBulkBarbers} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold" style={{ backgroundColor: C.ink, color: C.paper }}>
+                    <Plus size={15} /> Listeyi Ekle
+                  </button>
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard title="KAMPANYALAR" icon={Tag}>
+              <div className="space-y-2 mb-4">
+                {campaigns.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2 p-2.5 rounded-md flex-wrap" style={{ backgroundColor: C.paperSoft, border: `1px solid ${C.paperLine}` }}>
+                    <span className="flex-1 text-sm font-medium min-w-[100px]">{c.name}</span>
+                    <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: C.paperLine }}>{c.type === "percent" ? `%${c.value}` : formatTL(c.value)}</span>
+                    <button onClick={() => deleteCampaign(c.id)} style={{ color: C.red }} className="p-1.5"><Trash2 size={15} /></button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input placeholder="Kampanya adı" value={newCampName} onChange={(e) => setNewCampName(e.target.value)} className="flex-1 min-w-[120px] px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper }} />
+                <select value={newCampType} onChange={(e) => setNewCampType(e.target.value)} className="px-2 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper }}>
+                  <option value="percent">Yüzde %</option>
+                  <option value="amount">Tutar ₺</option>
+                </select>
+                <input type="number" placeholder="Değer" value={newCampValue} onChange={(e) => setNewCampValue(e.target.value)} className="w-20 px-3 py-2 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }} />
+                <button onClick={addNewCampaign} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold" style={{ backgroundColor: C.brass, color: C.ink }}><Plus size={15} /> Ekle</button>
+              </div>
+
+              <button onClick={() => setBulkCampOpen((v) => !v)} className="flex items-center gap-1.5 mt-3 text-sm font-medium" style={{ color: C.navy }}>
+                <ListPlus size={15} /> {bulkCampOpen ? "Toplu eklemeyi kapat" : "Toplu kampanya ekle"}
+              </button>
+              {bulkCampOpen && (
+                <div className="mt-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs" style={{ color: C.muted }}>Tip:</span>
+                    <select value={bulkCampType} onChange={(e) => setBulkCampType(e.target.value)} className="px-2 py-1.5 rounded text-sm" style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper }}>
+                      <option value="percent">Yüzde % (tüm liste)</option>
+                      <option value="amount">Tutar ₺ (tüm liste)</option>
+                    </select>
+                  </div>
+                  <textarea
+                    value={bulkCampText}
+                    onChange={(e) => setBulkCampText(e.target.value)}
+                    placeholder={"Her satıra bir kampanya: Ad, Değer\nÖrn: Öğrenci İndirimi, 10\nHafta İçi Kampanyası, 15"}
+                    rows={4}
+                    className="w-full px-3 py-2 rounded text-sm mb-2"
+                    style={{ border: `1px solid ${C.paperLine}`, backgroundColor: C.paper, fontFamily: FONT_MONO }}
+                  />
+                  <button onClick={addBulkCampaigns} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold" style={{ backgroundColor: C.ink, color: C.paper }}>
+                    <Plus size={15} /> Listeyi Ekle
+                  </button>
+                </div>
+              )}
+            </SectionCard>
+          </div>
+        )}
+      </main>
+
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+
+      {lastSale && (
+        <div id="print-receipt">
+          <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 26 }}>BERBER KASA</h2>
+          <p style={{ fontFamily: FONT_MONO, fontSize: 12 }}>{new Date(lastSale.date).toLocaleString("tr-TR")}</p>
+          <p style={{ fontFamily: FONT_MONO, fontSize: 12 }}>Berber: {lastSale.barberName}</p>
+          <hr />
+          {lastSale.items.map((i, idx) => (
+            <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_MONO, fontSize: 13 }}>
+              <span>{i.name} x{i.qty}</span>
+              <span>{formatTL(i.price * i.qty)}</span>
+            </div>
+          ))}
+          <hr />
+          {lastSale.discount && (
+            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_MONO, fontSize: 13 }}>
+              <span>İndirim ({lastSale.discount.name})</span>
+              <span>-{formatTL(lastSale.discount.amount)}</span>
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_MONO, fontSize: 16, fontWeight: 700 }}>
+            <span>TOPLAM</span>
+            <span>{formatTL(lastSale.total)}</span>
+          </div>
+          <p style={{ fontFamily: FONT_MONO, fontSize: 12 }}>Ödeme: {lastSale.payment}</p>
+          <p style={{ fontFamily: FONT_MONO, fontSize: 12, marginTop: 12 }}>Teşekkür ederiz</p>
+        </div>
+      )}
+    </div>
+  );
+}
